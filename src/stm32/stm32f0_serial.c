@@ -20,6 +20,13 @@
             (CONFIG_MACH_STM32H7 | CONFIG_MACH_STM32G4) ? 7 : 1)
   #define USARTx USART1
   #define USARTx_IRQn USART1_IRQn
+#elif CONFIG_STM32_SERIAL_USART1_ALT_PA0_PA1
+  DECL_CONSTANT_STR("RESERVE_PINS_serial", "PA1,PA0");
+  #define GPIO_Rx GPIO('A', 1)
+  #define GPIO_Tx GPIO('A', 0)
+  #define USARTx_FUNCTION GPIO_FUNCTION(4)
+  #define USARTx USART1
+  #define USARTx_IRQn USART1_IRQn
 #elif CONFIG_STM32_SERIAL_USART1_ALT_PB7_PB6
   DECL_CONSTANT_STR("RESERVE_PINS_serial", "PB7,PB6");
   #define GPIO_Rx GPIO('B', 7)
@@ -101,7 +108,7 @@
   #define USART2_IRQn USART1_IRQn
 #endif
 
-#if CONFIG_MACH_STM32G0
+#if CONFIG_MACH_STM32G0 || CONFIG_MACH_STM32C0
   // Some of the stm32g0 MCUs have slightly different register names
   #if CONFIG_MACH_STM32G0B1
     #define USART2_IRQn USART2_LPUART2_IRQn

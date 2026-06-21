@@ -8,7 +8,6 @@
 #include "board/misc.h" // timer_from_us
 #include "command.h" // shutdown
 #include "compiler.h" // ARRAY_SIZE
-#include "generic/armcm_timer.h" // udelay
 #include "gpio.h" // gpio_adc_setup
 #include "internal.h" // GPIO
 #include "sched.h" // sched_shutdown
@@ -21,10 +20,15 @@ DECL_ENUMERATION("pin", "ADC_TEMPERATURE", ADC_TEMPERATURE_PIN);
 static const uint8_t adc_pins[] = {
     GPIO('A', 0), GPIO('A', 1), GPIO('A', 2), GPIO('A', 3),
     GPIO('A', 4), GPIO('A', 5), GPIO('A', 6), GPIO('A', 7),
-    GPIO('B', 0), GPIO('B', 1),
+    GPIO('B', 0),
+#if !CONFIG_MACH_STM32C0
+    GPIO('B', 1),
+#endif
 #if CONFIG_MACH_STM32F0
     GPIO('C', 0), GPIO('C', 1),
     GPIO('C', 2), GPIO('C', 3), GPIO('C', 4), GPIO('C', 5),
+    ADC_TEMPERATURE_PIN
+#elif CONFIG_MACH_STM32C0
     ADC_TEMPERATURE_PIN
 #elif CONFIG_MACH_STM32G0
     GPIO('B', 2), GPIO('B', 10),
@@ -33,12 +37,17 @@ static const uint8_t adc_pins[] = {
 #endif
 };
 
+#if CONFIG_MACH_STM32F0
+#define CR_FLAGS 0
+#elif CONFIG_MACH_STM32G0 || CONFIG_MACH_STM32C0
+#define CR_FLAGS ADC_CR_ADVREGEN
+#endif
+
 // Setup and calibrate ADC on stm32f0 chips
 static void
 stm32f0_adc_setup(void)
 {
 #if CONFIG_MACH_STM32F0
-    #define CR_FLAGS 0
     ADC_TypeDef *adc = ADC1;
     // 100: 41.5 ADC clock cycles
     adc->SMPR = 4 << ADC_SMPR_SMP_Pos;
@@ -49,11 +58,13 @@ stm32f0_adc_setup(void)
 static void
 stm32g0_adc_setup(void)
 {
-#if CONFIG_MACH_STM32G0
-    #define CR_FLAGS ADC_CR_ADVREGEN
+#if CONFIG_MACH_STM32G0 || CONFIG_MACH_STM32C0
     ADC_TypeDef *adc = ADC1;
     // 101: 39.5 ADC clock cycles
     adc->SMPR = 5 << ADC_SMPR_SMP1_Pos;
+    if (CONFIG_MACH_STM32C0)
+        // Temperature sensor requires at least 5us sampling time.
+        adc->SMPR = 7 << ADC_SMPR_SMP1_Pos;
     adc->CFGR2 = 2 << ADC_CFGR2_CKMODE_Pos; // 16Mhz
 
     // Enable voltage regulator
@@ -81,7 +92,7 @@ gpio_adc_setup(uint32_t pin)
         enable_pclock(ADC1_BASE);
         if (CONFIG_MACH_STM32F0)
             stm32f0_adc_setup();
-        else if (CONFIG_MACH_STM32G0)
+        else if (CONFIG_MACH_STM32G0 || CONFIG_MACH_STM32C0)
             stm32g0_adc_setup();
 
         // Start calibration and wait for completion
@@ -97,10 +108,16 @@ gpio_adc_setup(uint32_t pin)
             ;
     }
 
-    if (pin == ADC_TEMPERATURE_PIN)
-        ADC1_COMMON->CCR = ADC_CCR_TSEN;
-    else
+    if (pin == ADC_TEMPERATURE_PIN) {
+        ADC1_COMMON->CCR |= ADC_CCR_TSEN;
+        if (CONFIG_MACH_STM32C0) {
+            uint32_t end = timer_read_time() + timer_from_us(120);
+            while (timer_is_before(timer_read_time(), end))
+                ;
+        }
+    } else {
         gpio_peripheral(pin, GPIO_ANALOG, 0);
+    }
 
     return (struct gpio_adc){ .chan = 1 << chan };
 }
@@ -119,7 +136,7 @@ gpio_adc_sample(struct gpio_adc g)
             return 0;
         goto need_delay;
     }
-#if CONFIG_MACH_STM32G0
+#if CONFIG_MACH_STM32G0 || CONFIG_MACH_STM32C0
     if (adc->CHSELR != g.chan) {
         adc->ISR = ADC_ISR_CCRDY;
         adc->CHSELR = g.chan;
