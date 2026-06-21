@@ -8,6 +8,7 @@ import mcu
 from . import hx71x
 from . import ads1220
 from . import ads131m0x
+from . import bdpressure_probe
 from . import probe, manual_probe, trigger_analog, load_cell
 
 np = None  # delay NumPy import until configuration time
@@ -261,19 +262,26 @@ class LoadCellProbeConfigHelper:
     def get_safety_limit_grams(self, gcmd=None):
         return self._force_safety_limit_param.get(gcmd)
 
-    def get_safety_range(self, gcmd=None):
+    def get_safety_range(self, gcmd=None, tare_counts=None):
         counts_per_gram = self._load_cell.get_counts_per_gram()
+        sensor = self._load_cell.get_sensor()
         # calculate the safety band
         zero = self._load_cell.get_reference_tare_counts()
+        if (tare_counts is not None
+                and hasattr(sensor, 'load_cell_to_sensor_counts')):
+            zero = tare_counts
         safety_counts = int(counts_per_gram * self.get_safety_limit_grams(gcmd))
         safety_min = int(zero - safety_counts)
         safety_max = int(zero + safety_counts)
         # don't allow a safety range outside the sensor's real range
-        sensor_min, sensor_max = self._load_cell.get_sensor().get_range()
+        sensor_min, sensor_max = sensor.get_range()
         if safety_min <= sensor_min or safety_max >= sensor_max:
             cmd_err = self._printer.command_error
             raise cmd_err("Load cell force_safety_limit exceeds sensor range!")
-        return safety_min, safety_max
+        if hasattr(sensor, 'load_cell_to_sensor_counts'):
+            safety_min = sensor.load_cell_to_sensor_counts(safety_min)
+            safety_max = sensor.load_cell_to_sensor_counts(safety_max)
+        return min(safety_min, safety_max), max(safety_min, safety_max)
 
     # calculate 1/counts_per_gram
     def get_grams_per_count(self):
@@ -284,6 +292,20 @@ class LoadCellProbeConfigHelper:
         if counts_per_gram >= (1<<29):
             raise OverflowError("counts_per_gram value is too large to filter")
         return 1. / counts_per_gram
+
+    def get_sensor_grams_per_count(self):
+        grams_per_count = self.get_grams_per_count()
+        sensor = self._load_cell.get_sensor()
+        if hasattr(sensor, 'load_cell_grams_per_count_to_sensor'):
+            grams_per_count = sensor.load_cell_grams_per_count_to_sensor(
+                grams_per_count)
+        return grams_per_count
+
+    def get_sensor_counts(self, load_cell_counts):
+        sensor = self._load_cell.get_sensor()
+        if hasattr(sensor, 'load_cell_to_sensor_counts'):
+            return sensor.load_cell_to_sensor_counts(load_cell_counts)
+        return int(load_cell_counts)
 
 
 # Execute probing moves using the MCU_trigger_analog
@@ -326,12 +348,17 @@ class LoadCellProbingMove:
         # update the load cell so it reflects the new tare value
         self._load_cell.tare(tare_counts)
         # update raw range
-        safety_min, safety_max = self._config_helper.get_safety_range(gcmd)
+        safety_min, safety_max = self._config_helper.get_safety_range(
+            gcmd, tare_counts)
+        sensor_tare_counts = self._config_helper.get_sensor_counts(tare_counts)
         self._mcu_trigger_analog.set_raw_range(safety_min, safety_max)
         # update internal tare value
-        gpc = self._config_helper.get_grams_per_count() * FRAC_GRAMS_CONV
+        gpc = self._config_helper.get_sensor_grams_per_count()
+        gpc *= FRAC_GRAMS_CONV
         sos_filter = self._mcu_trigger_analog.get_sos_filter()
-        sos_filter.set_offset_scale(int(-tare_counts), gpc)
+        # Some sensor adapters expose calibrated load-cell counts to host code,
+        # but the MCU filter offset must be in the sensor's native count space.
+        sos_filter.set_offset_scale(int(-sensor_tare_counts), gpc)
         # update trigger
         trigger_val = self._config_helper.get_trigger_force_grams(gcmd)
         trigger_frac_grams = int(trigger_val * FRAC_GRAMS_CONV)
@@ -487,6 +514,7 @@ class LoadCellPrinterProbe:
         sensors.update(hx71x.HX71X_SENSOR_TYPES)
         sensors.update(ads1220.ADS1220_SENSOR_TYPE)
         sensors.update(ads131m0x.ADS131M0X_SENSOR_TYPES)
+        sensors.update(bdpressure_probe.BDPRESSURE_SENSOR_TYPES)
         sensor_class = config.getchoice('sensor_type', sensors)
         sensor = sensor_class(config)
         self._load_cell = load_cell.LoadCell(config, sensor)

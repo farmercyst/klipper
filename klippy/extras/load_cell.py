@@ -7,6 +7,7 @@
 from . import hx71x
 from . import ads1220
 from . import ads131m0x
+from . import bdpressure_probe
 from .bulk_sensor import BatchWebhooksClient
 import collections, itertools
 # We want either Python 3's zip() or Python 2's izip() but NOT 2's zip():
@@ -429,6 +430,7 @@ class LoadCell:
 
     def tare(self, tare_counts):
         self.tare_counts = int(tare_counts)
+        self._force_buffer.clear()
         self.printer.send_event("load_cell:tare", self)
 
     def set_calibration(self, counts_per_gram, tare_counts):
@@ -535,6 +537,7 @@ def load_config(config):
     sensors.update(hx71x.HX71X_SENSOR_TYPES)
     sensors.update(ads1220.ADS1220_SENSOR_TYPE)
     sensors.update(ads131m0x.ADS131M0X_SENSOR_TYPES)
+    sensors.update(bdpressure_probe.BDPRESSURE_SENSOR_TYPES)
     sensor_class = config.getchoice('sensor_type', sensors)
     return LoadCell(config, sensor_class(config))
 
