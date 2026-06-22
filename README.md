@@ -39,7 +39,6 @@ Important enabled options:
 - Clock reference: `Internal clock`
 - Communication interface: `Serial (on USART1 PB7/PB6)`
 - Baud rate: `250000`
-- Software SPI bit banging
 - ADS1220 ADC support
 - Homing/probing events using analog sensors
 
@@ -87,8 +86,8 @@ to rewrite the higher-level probing logic.
 ### Software
 
 - Multi-MCU synchronization hits communication timeouts during Z homing.
-  The current suspicion is that SPI bit banging on the STM32C011/ADS1220 path is
-  adding enough latency to expose this.
+  ~~The current suspicion is that SPI bit banging on the STM32C011/ADS1220 path is
+  adding enough latency to expose this.~~
 - Thermal drift is the biggest known issue with probing. Real print conditions can move the
   raw count baseline enough to affect repeated probing.
 - More testing is needed around `tare_time`, `trigger_force`,
@@ -99,7 +98,7 @@ to rewrite the higher-level probing logic.
 - Some failures only show up during real print-start conditions, after heat
   soak, bed mesh, and repeated taps.
 
-Thermal drift during bed mesh caused trigger before movement and print failure. Top is force bottom is raw counts.
+Thermal drift during bed mesh caused trigger before movement and print failure. Top chart is force bottom is raw counts.
 
 ![Thermal drift](assets/thermal_drift.png)
 
@@ -120,11 +119,10 @@ STM32C011 pin assignments that were used.
 sensor_type: bdpressure_ads1220
 tare_time: 0.3
 
-spi_software_sclk_pin: stx32c011:PA5
-spi_software_mosi_pin: stx32c011:PA2
-spi_software_miso_pin: stx32c011:PA6
-cs_pin: stx32c011:PA4
-data_ready_pin: stx32c011:PA3
+spi_bus: spi1_PA6_PA2_PA5
+cs_pin: stm32c011:PA4
+data_ready_pin: stm32c011:PA3
+
 
 bd_range: 213500
 input_mux: AIN0_AIN1
