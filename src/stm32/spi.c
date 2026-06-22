@@ -225,8 +225,11 @@ struct spi_info {
 #elif CONFIG_MACH_STM32C0
   DECL_ENUMERATION("spi_bus", "spi1_PA6_PA7_PA5", 0);
   DECL_CONSTANT_STR("BUS_PINS_spi1_PA6_PA7_PA5", "PA6,PA7,PA5");
-  DECL_ENUMERATION("spi_bus", "spi1", 0);
-  DECL_CONSTANT_STR("BUS_PINS_spi1", "PA6,PA7,PA5");
+ #if CONFIG_MACH_STM32C011
+  // STM32C011-specific SPI1 pin set: MISO, MOSI, SCK on PA6, PA2, PA5.
+  DECL_ENUMERATION("spi_bus", "spi1_PA6_PA2_PA5", 1);
+  DECL_CONSTANT_STR("BUS_PINS_spi1_PA6_PA2_PA5", "PA6,PA2,PA5");
+ #endif
 #endif
 
 #define SPI_FUNCTION(miso, mosi, sck) GPIO_FUNCTION(miso), \
@@ -282,6 +285,10 @@ static const struct spi_info spi_bus[] = {
  #endif
 #elif CONFIG_MACH_STM32C0
   { SPI1, GPIO('A', 6), GPIO('A', 7), GPIO('A', 5), SPI_FUNCTION(0, 0, 0) },
+ #if CONFIG_MACH_STM32C011
+  // STM32C011-specific SPI1 pin set: MISO, MOSI, SCK on PA6, PA2, PA5.
+  { SPI1, GPIO('A', 6), GPIO('A', 2), GPIO('A', 5), SPI_FUNCTION(0, 0, 0) },
+ #endif
 #elif CONFIG_MACH_STM32G4
   { SPI2, GPIO('B', 14), GPIO('B', 15), GPIO('B', 13), SPI_FUNCTION(5, 5, 5) },
   { SPI1, GPIO('A', 6), GPIO('A', 7), GPIO('A', 5), SPI_FUNCTION(5, 5, 5) },
