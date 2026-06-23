@@ -8,7 +8,6 @@ import mcu
 from . import hx71x
 from . import ads1220
 from . import ads131m0x
-from . import bdpressure_probe
 from . import probe, manual_probe, trigger_analog, load_cell
 
 np = None  # delay NumPy import until configuration time
@@ -264,23 +263,23 @@ class LoadCellProbeConfigHelper:
 
     def get_safety_range(self, gcmd=None, tare_counts=None):
         counts_per_gram = self._load_cell.get_counts_per_gram()
-        sensor = self._load_cell.get_sensor()
+        converter = self._load_cell
         # calculate the safety band
         zero = self._load_cell.get_reference_tare_counts()
         if (tare_counts is not None
-                and hasattr(sensor, 'load_cell_to_sensor_counts')):
+                and hasattr(converter, 'load_cell_to_sensor_counts')):
             zero = tare_counts
         safety_counts = int(counts_per_gram * self.get_safety_limit_grams(gcmd))
         safety_min = int(zero - safety_counts)
         safety_max = int(zero + safety_counts)
         # don't allow a safety range outside the sensor's real range
-        sensor_min, sensor_max = sensor.get_range()
+        sensor_min, sensor_max = self._load_cell.saturation_range()
         if safety_min <= sensor_min or safety_max >= sensor_max:
             cmd_err = self._printer.command_error
             raise cmd_err("Load cell force_safety_limit exceeds sensor range!")
-        if hasattr(sensor, 'load_cell_to_sensor_counts'):
-            safety_min = sensor.load_cell_to_sensor_counts(safety_min)
-            safety_max = sensor.load_cell_to_sensor_counts(safety_max)
+        if hasattr(converter, 'load_cell_to_sensor_counts'):
+            safety_min = converter.load_cell_to_sensor_counts(safety_min)
+            safety_max = converter.load_cell_to_sensor_counts(safety_max)
         return min(safety_min, safety_max), max(safety_min, safety_max)
 
     # calculate 1/counts_per_gram
@@ -295,16 +294,16 @@ class LoadCellProbeConfigHelper:
 
     def get_sensor_grams_per_count(self):
         grams_per_count = self.get_grams_per_count()
-        sensor = self._load_cell.get_sensor()
-        if hasattr(sensor, 'load_cell_grams_per_count_to_sensor'):
-            grams_per_count = sensor.load_cell_grams_per_count_to_sensor(
+        converter = self._load_cell
+        if hasattr(converter, 'load_cell_grams_per_count_to_sensor'):
+            grams_per_count = converter.load_cell_grams_per_count_to_sensor(
                 grams_per_count)
         return grams_per_count
 
     def get_sensor_counts(self, load_cell_counts):
-        sensor = self._load_cell.get_sensor()
-        if hasattr(sensor, 'load_cell_to_sensor_counts'):
-            return sensor.load_cell_to_sensor_counts(load_cell_counts)
+        converter = self._load_cell
+        if hasattr(converter, 'load_cell_to_sensor_counts'):
+            return converter.load_cell_to_sensor_counts(load_cell_counts)
         return int(load_cell_counts)
 
 
@@ -509,15 +508,8 @@ class LoadCellPrinterProbe:
         except:
             raise cfg_error("[load_cell_probe] requires the NumPy module")
         self._printer = config.get_printer()
-        # Sensor types supported by load_cell_probe
-        sensors = {}
-        sensors.update(hx71x.HX71X_SENSOR_TYPES)
-        sensors.update(ads1220.ADS1220_SENSOR_TYPE)
-        sensors.update(ads131m0x.ADS131M0X_SENSOR_TYPES)
-        sensors.update(bdpressure_probe.BDPRESSURE_SENSOR_TYPES)
-        sensor_class = config.getchoice('sensor_type', sensors)
-        sensor = sensor_class(config)
-        self._load_cell = load_cell.LoadCell(config, sensor)
+        sensor = self._create_sensor(config)
+        self._load_cell = self._create_load_cell(config, sensor)
         # Read all user configuration and build modules
         config_helper = LoadCellProbeConfigHelper(config, self._load_cell)
         self._mcu = self._load_cell.get_sensor().get_mcu()
@@ -544,6 +536,20 @@ class LoadCellPrinterProbe:
         LoadCellProbeCommands(config, load_cell_probing_move)
         probe.HomingViaProbeHelper(config, self.get_offsets()[2])
         self._printer.add_object('probe', self)
+
+    def _get_sensor_types(self):
+        sensors = {}
+        sensors.update(hx71x.HX71X_SENSOR_TYPES)
+        sensors.update(ads1220.ADS1220_SENSOR_TYPE)
+        sensors.update(ads131m0x.ADS131M0X_SENSOR_TYPES)
+        return sensors
+
+    def _create_sensor(self, config):
+        sensor_class = config.getchoice('sensor_type', self._get_sensor_types())
+        return sensor_class(config)
+
+    def _create_load_cell(self, config, sensor):
+        return load_cell.LoadCell(config, sensor)
 
     def get_probe_params(self, gcmd=None):
         return self._param_helper.get_probe_params(gcmd)
