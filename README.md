@@ -23,8 +23,7 @@ calibrate pressure advance.
   - C=PB6 which is USART1_TX
   - D=PB7 which is USART1_RX
 - Software: tap-style probing, homing, bed mesh probing, raw count reporting,
-  buzz filtering, and release validation. Pressure advance calibration is not
-  implemented.
+  and buzz filtering. Pressure advance calibration is not implemented.
 
 ## Build config
 
@@ -53,21 +52,21 @@ The board's CH340 USB path can be used to flash Klipper with
 STM32CubeProgrammer over UART. `stm32flash` did not recognize the STM32C0 in
 testing, so STM32CubeProgrammer was used instead.
 
-## BDPressureADS1220
+## BDPressureProbe
 
-The main implementation is `BDPressureADS1220` in
+The main implementation is `BDPressureProbe` in
 `klippy/extras/bdpressure_probe.py`.
 
 This is needed because the BDpressure sensor output is very small.  It puts out about 200,000 counts when compressed (nozzle hitting the bed or filament extrusion).  I assume it's the same in the negative direction but not tested.  For reference, the ADS1220 range is -8,388,608 - 8,388,607.
 
-`BDPressureADS1220` subclasses Klipper's normal load-cell probe implementation.
+`BDPressureProbe` subclasses Klipper's normal load-cell probe implementation.
 The ADS1220 still performs the low-level ADC communication. The BD load-cell
 subclass keeps the original raw BD count value for status and converts each
 sample into the wider count range Klipper is designed to consume.
 
 The BDpressure probe reports a much smaller useful raw-count span than a
 typical load cell used for 3D printer probing. Klipper's load cell code expects a larger ADS1220-style count
-range, so `BDPressureADS1220` interpolates between two ranges:
+range, so `BDPressureProbe` interpolates between two ranges:
 
 - BDpressure native range:
   `reference_tare_counts` to `reference_tare_counts + bd_range`
@@ -89,19 +88,18 @@ to rewrite the higher-level probing logic.
 
 - ~~Multi-MCU synchronization hits communication timeouts during Z homing The current suspicion is that SPI bit banging on the STM32C011/ADS1220 path is adding enough latency to expose this.~~
 - ~~Thermal drift is the biggest known issue with probing. Real print conditions can move the raw count baseline enough to affect repeated probing.~~
-- ~~More testing is needed around `tare_time`, `trigger_force`, `drift_filter_cutoff_frequency`, and probe retract timing.~~
+- ~~More testing is needed around `tare_time`, `trigger_force`, and `drift_filter_cutoff_frequency`.~~
 - ~~Filtering needs more tuning. The existing drift filter helps reject slow baseline changes, but the project may need better adaptive baseline handling for this sensor.~~
 - ~~Some failures only show up during real print-start conditions, after heat soak, bed mesh, and repeated taps.~~
 
 ~~Thermal drift during bed mesh caused trigger before movement and print failure. Top chart is force; bottom chart is raw counts.~~
 
-![Homing probe](assets/homing_tap.png)
+![probe tap](assets/tap.png)
 
-Homing probe showing before and after using buzz filter
+Homing probe showing before and after filitering.
 
-![Mesh tap](assets/meshing_tap.png)
+I used [Filter Workbench](https://github.com/farmercyst/klipper/blob/stm32c0/scripts/filter_workbench.ipynb) and [get_tap.py](https://github.com/farmercyst/klipper/blob/stm32c0/scripts/get_tap.py) to play around with filter options.
 
-Mesh tap
 
 ## Software Configuration
 
@@ -126,32 +124,30 @@ spi_bus: spi1_PA6_PA2_PA5
 cs_pin: stm32c011:PA4
 data_ready_pin: stm32c011:PA3
 
-bd_range: 170434
+bd_range: 170434 #170434
 input_mux: AIN0_AIN1
 gain: 128
 pga_bypass: False
 sample_rate: 660
 counts_per_gram: 200
 reference_tare_counts: 1210080
-trigger_force: 250
+trigger_force: 300
 force_safety_limit: 5000
-# drift_filter_cutoff_frequency: 0.25
-# drift_filter_delay: 2
+drift_filter_cutoff_frequency: 0.5
+drift_filter_delay: 2
 buzz_filter_cutoff_frequency: 150.0
-buzz_filter_delay: 2
+buzz_filter_delay: 1
 # notch_filter_frequencies: 50, 60
 # notch_filter_quality: 0.5
 z_offset:0.0
 
-speed: 3
+speed: 5
 samples: 3
 sample_retract_dist: 1.5
 lift_speed:5
 samples_result: average
 samples_tolerance: 0.1
 samples_tolerance_retries: 3
-require_release_validation: False
-release_validation_min_counts: 100
 activate_gcode:
   bd_led_on
 deactivate_gcode:
@@ -184,17 +180,6 @@ Custom or important parameters:
   move. This is important because the BDpressure probe can drift during real
   print conditions.
 - `trigger_force` is the force threshold used to stop a probing move.
-- `minimum_probe_travel` marks trigger candidates that happened before the
-  nozzle moved this far downward. It is diagnostic only; release validation
-  decides whether the tap candidate is usable.
-- `require_release_validation` can make BDpressure reject a tap unless retract
-  causes the raw signal to move away from the trigger-loaded state.
-- `release_validation_min_counts` sets the minimum raw-count change needed for
-  release validation. A value of `0` leaves it as a shape-only diagnostic.
-- `release_validation_retries` controls how many invalid trigger candidates can
-  be discarded and retried before the tap is returned or failed.
-- `release_remaining_ratio` controls how close the raw signal must return to
-  the pre-trigger baseline before release is considered valid.
 - `trigger_before_movement_retries` re-tares and retries if Klipper reports
   `Probe triggered prior to movement` before the descent starts.
 - `force_safety_limit` sets the maximum allowed probing force before Klipper aborts.
