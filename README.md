@@ -16,12 +16,26 @@ calibrate pressure advance.
 ## What Works
 
 - Hardware: the STM32C011, ADS1220, hardware SPI, and direct host UART path have
-  been tested. Software serial is experimental and should be avoided for normal
-  use. The BDpressure board's I2C connector can be repurposed for the host UART:
-  - 5v
-  - G
-  - C=PB6 which is USART1_TX
-  - D=PB7 which is USART1_RX
+  been tested.
+- Comms:
+  - (best option) The BDpressure board's I2C connector can be repurposed for the host UART:
+    - 3v3- 5v
+    - G
+    - C=PB6 which is USART1_TX
+    - D=PB7 which is USART1_RX
+  - USB to Serial adaptor using repurposed I2C pins.  This may requires decreasing the latency_timer in the driver if Klipper shuts down with communication timeout during Z home.  Mine was 16ms.  Klipper requires 25ms round trip, so the latency alone eats most of that time. Adapt below for your hardware.
+    ```
+    ls /sys/bus/usb-serial/devices/
+    cat /sys/bus/usb-serial/devices/ttyUSB0/latency_timer
+    ```
+
+    If that works, make the fix persistent.  Adapt to you hardware again
+
+    ```
+    sudo nano /etc/udev/rules.d/99-ftdi-latency.rules
+    ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="2"
+    ```
+  - Software serial is experimental and should be avoided for normal use. Will probably need the same latency fix as above.
 - Software: tap-style probing, homing, bed mesh probing, raw count reporting,
   and buzz filtering. Pressure advance calibration is not implemented.
 
@@ -82,7 +96,7 @@ to rewrite the higher-level probing logic.
 
 - ~~SPI bit banging on the small STM32C011 board adds latency.~~ SPI pins now mapped for STM32C011 variant so no longer bit-banging
 - The STM32C011 is very resource constrained, so the firmware configuration has to stay minimal.
-- Software serial can keep the CH340 USB path available for flashing, but in testing the STM32C011 needed a direct host UART connection for reliable Klipper communication. The USB-to-serial adapter caused retransmissions and ultimately exceeded `TRSYNC_TIMEOUT`.
+- Software serial can keep the CH340 USB path available for flashing, but in testing the STM32C011 needed a direct host UART connection for reliable Klipper communication. ~~The USB-to-serial adapter caused retransmissions and ultimately exceeded `TRSYNC_TIMEOUT`.~~
 
 ### Software
 
