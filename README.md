@@ -9,8 +9,7 @@ See their wiki, [PandaPi3D wiki](https://pandapi3d.cn/)
 
 ***This is not a substitute for the original firmware. This is just a fun personal project driven by curiosity of microcontrollers and AI coding assistants.***
 
-Why is this needed?  This is an experiment. It will probe, but it does not
-calibrate pressure advance.
+Why is this needed?  It probably isn't needed.  I thought it could be fun to learn some low level mcu c code, so I here we are. This will not calibrate pressure advance, so this project does not add any value over the stock firmware except it integrats into klipper a little better.
 
 
 ## What Works
@@ -18,12 +17,12 @@ calibrate pressure advance.
 - Hardware: the STM32C011, ADS1220, hardware SPI, and direct host UART path have
   been tested.
 - Comms:
-  - (best option) The BDpressure board's I2C connector can be repurposed for the host UART:
+  - (best option) The BDpressure board's I2C connector can be repurposed for serial from BDpressure straight to host (raspberry pi) header pins:
     - 3v3- 5v
     - G
     - C=PB6 which is USART1_TX
     - D=PB7 which is USART1_RX
-  - USB to Serial adaptor using repurposed I2C pins.  This may requires decreasing the latency_timer in the driver if Klipper shuts down with communication timeout during Z home.  Mine was 16ms.  Klipper requires 25ms round trip, so the latency alone eats most of that time. Adapt below for your hardware.
+  - FTDI USB to TTL UART adaptor using repurposed I2C pins. This is required for FTDI to decrease the latency_timer in the driver if Klipper shuts down with communication timeout during Z home.  Default latency_timer is 16ms.  Klipper requires 25ms round trip, so the latency alone eats most of that time.
     ```
     ls /sys/bus/usb-serial/devices/
     cat /sys/bus/usb-serial/devices/ttyUSB0/latency_timer
@@ -35,9 +34,11 @@ calibrate pressure advance.
     sudo nano /etc/udev/rules.d/99-ftdi-latency.rules
     ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="2"
     ```
-  - Software serial is experimental and should be avoided for normal use. Will probably need the same latency fix as above.
+  - Software serial (usb-c on BDpressure) works with some configuration mods:
+    - menuconfig changes are described below after the recommended settins for direct UART connection.
+    - increase `TRSYNC_TIMEOUT` (this is why software serial is not recommended. This setting controls synchronization between multiple mcus to make sure they all stop then they should)
 - Software: tap-style probing, homing, bed mesh probing, raw count reporting,
-  and buzz filtering. Pressure advance calibration is not implemented.
+  and filtering. Pressure advance calibration is not implemented.
 
 ## Build config
 
@@ -59,8 +60,10 @@ Important enabled options:
 - ADS1220 ADC support
 - Homing/probing events using analog sensors
 
-Software serial is also a build option and has been tested up to `38400` baud,
-but direct UART was more reliable in testing.
+Software serial is also a build option `Software serial (on PA12/PA11)`. It should be treated as a constrained
+fallback, not the preferred transport. The best tested software-serial setup was
+`57600` baud with ADS1220 sampling at `330 SPS`; direct UART remained more
+reliable when the board wiring allows it.
 
 The board's CH340 USB path can be used to flash Klipper with
 STM32CubeProgrammer over UART. `stm32flash` did not recognize the STM32C0 in
@@ -96,7 +99,11 @@ to rewrite the higher-level probing logic.
 
 - ~~SPI bit banging on the small STM32C011 board adds latency.~~ SPI pins now mapped for STM32C011 variant so no longer bit-banging
 - The STM32C011 is very resource constrained, so the firmware configuration has to stay minimal.
-- Software serial can keep the CH340 USB path available for flashing, but in testing the STM32C011 needed a direct host UART connection for reliable Klipper communication. ~~The USB-to-serial adapter caused retransmissions and ultimately exceeded `TRSYNC_TIMEOUT`.~~
+- Software serial can keep the CH340 USB path available for flashing. It is now
+  functional with conservative settings, but still timing-sensitive. The best
+  tested setup was `57600` baud, `330 SPS`, and the STM32C0 soft-serial RX
+  timing bias in this branch. Direct host UART remains the preferred connection
+  for reliability.
 
 ### Software
 
@@ -122,10 +129,11 @@ This is the configuration used during testing. It shows the custom BDpressure pr
 ```ini
 [mcu stm32c011]
 serial: /dev/ttyS5
-baud: 250000
+baud: 250000 # 58700 for software serial
 restart_method: command
 
-[temperature_sensor c0_mcu_temp]
+# For software serial, comment out all of the mcu temperature lines, it uses small but precious clock time and you need all the help you can get. 
+[temperature_sensor c0_mcu_temp] 
 sensor_type: temperature_mcu
 sensor_mcu: stm32c011
 min_temp: 0
@@ -138,24 +146,24 @@ spi_bus: spi1_PA6_PA2_PA5
 cs_pin: stm32c011:PA4
 data_ready_pin: stm32c011:PA3
 
-bd_range: 170434 #170434
+bd_range: 170434 
 input_mux: AIN0_AIN1
 gain: 128
 pga_bypass: False
-sample_rate: 660
+sample_rate: 660 # 330 for software serial 
 counts_per_gram: 200
 reference_tare_counts: 1210080
 trigger_force: 300
 force_safety_limit: 5000
 drift_filter_cutoff_frequency: 0.5
 drift_filter_delay: 2
-buzz_filter_cutoff_frequency: 150.0
+buzz_filter_cutoff_frequency: 150.0 # 100 for software serial
 buzz_filter_delay: 1
 # notch_filter_frequencies: 50, 60
 # notch_filter_quality: 0.5
 z_offset:0.0
 
-speed: 5
+speed: 3
 samples: 3
 sample_retract_dist: 1.5
 lift_speed:5
@@ -164,6 +172,7 @@ samples_tolerance: 0.1
 samples_tolerance_retries: 3
 activate_gcode:
   bd_led_on
+  G4 P250
 deactivate_gcode:
   bd_led_off
 

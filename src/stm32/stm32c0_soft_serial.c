@@ -49,7 +49,8 @@ rx_event(struct timer *t)
         if (rx_read())
             rx_byte |= 1 << rx_bit;
         rx_bit++;
-        t->waketime += bit_ticks;
+        // Bias sampling slightly earlier to compensate for soft serial latency.
+        t->waketime += (bit_ticks - 15);
         return SF_RESCHEDULE;
     }
 
