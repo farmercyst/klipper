@@ -9,7 +9,7 @@ See their wiki, [PandaPi3D wiki](https://pandapi3d.cn/)
 
 ***This is not a substitute for the original firmware. This is just a fun personal project driven by curiosity of microcontrollers and AI coding assistants.***
 
-Why is this needed?  It probably isn't needed.  I thought it could be fun to learn some low level mcu c code, so I here we are. This will not calibrate pressure advance, so this project does not add any value over the stock firmware except it integrats into klipper a little better.
+Why is this needed?  It probably isn't needed.  I thought it could be fun project to learn more about microcontrollers and AI assisted coding, so I here we are. This will not calibrate pressure advance, so this project does not add any value over the stock firmware, except it integrats into klipper a little better.
 
 
 ## What Works
